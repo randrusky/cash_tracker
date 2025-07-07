@@ -7,54 +7,84 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
-	"github.com/randrusky/cash_tracker/logic" // Замініть на ваш шлях до проєкту
+	"cash_tracker/v2/logic" // <-- Не забудьте замінити на ваш шлях
 )
 
 // CreateMainWindow створює та повертає головне вікно
 func CreateMainWindow(app fyne.App) fyne.Window {
 	win := app.NewWindow("Облік Готівки")
-	win.Resize(fyne.NewSize(400, 600))
+	win.Resize(fyne.NewSize(450, 600))
 
 	entries := make(map[int]*widget.Entry)
-	totalLabel := widget.NewLabel("Загальна сума: 0 грн")
+	subtotalLabels := make(map[int]*widget.Label) // Мапа для зберігання лейблів проміжних підсумків
+	grandTotalLabel := widget.NewLabel("Загальна сума: 0 грн")
+	grandTotalLabel.TextStyle.Bold = true
 
-	// Функція для оновлення загальної суми
-	updateTotal := func() {
-		total := 0
+	// Контейнер для всіх полів вводу
+	rowsContainer := container.NewVBox()
+
+	// Функція для оновлення всіх сум
+	updateTotals := func() {
+		grandTotal := 0
 		for _, denom := range logic.Denominations {
 			count, err := strconv.Atoi(entries[denom].Text)
-			if err == nil {
-				total += count * denom
+			if err != nil {
+				count = 0 // Якщо ввід некоректний, вважаємо його за нуль
 			}
+
+			subtotal := count * denom
+			grandTotal += subtotal
+
+			// Оновлюємо лейбл проміжного підсумку для конкретної купюри
+			subtotalLabels[denom].SetText(fmt.Sprintf("= %d грн", subtotal))
 		}
-		totalLabel.SetText(fmt.Sprintf("Загальна сума: %d грн", total))
+		// Оновлюємо загальну суму
+		grandTotalLabel.SetText(fmt.Sprintf("Загальна сума: %d грн", grandTotal))
 	}
 
-	formItems := []*widget.FormItem{}
+	// Створення рядків для кожного номіналу
 	for _, denom := range logic.Denominations {
 		entry := widget.NewEntry()
-		entry.OnChanged = func(s string) { updateTotal() }
+		entry.SetPlaceHolder("0") // Підказка
 		entries[denom] = entry
-		formItems = append(formItems, widget.NewFormItem(fmt.Sprintf("%d грн:", denom), entry))
-	}
 
-	form := widget.NewForm(formItems...)
+		subtotalLabel := widget.NewLabel("= 0 грн")
+		subtotalLabels[denom] = subtotalLabel
+
+		// Встановлюємо функцію, яка буде викликатись при зміні тексту
+		entry.OnChanged = func(s string) { updateTotals() }
+
+		// Створюємо горизонтальний контейнер для одного рядка
+		row := container.NewHBox(
+			widget.NewLabel(fmt.Sprintf("%d грн:", denom)),
+			entry,
+			subtotalLabel,
+		)
+		rowsContainer.Add(row)
+	}
 
 	// Кнопка для збереження запису
 	saveButton := widget.NewButton("Додати запис", func() {
 		breakdown := make(map[int]int)
 		total := 0
+		hasInput := false
+
 		for _, denom := range logic.Denominations {
 			count, err := strconv.Atoi(entries[denom].Text)
 			if err != nil {
 				count = 0
 			}
+			if count > 0 {
+				hasInput = true
+			}
 			breakdown[denom] = count
 			total += count * denom
 		}
 
-		if total > 0 {
+		// Зберігаємо тільки якщо є якісь дані
+		if hasInput {
 			record := logic.Record{
 				Date:      time.Now(),
 				Total:     total,
@@ -67,21 +97,21 @@ func CreateMainWindow(app fyne.App) fyne.Window {
 			}
 			// Очищення полів після збереження
 			for _, entry := range entries {
-				entry.SetText("")
+				entry.SetText("") // Це автоматично викличе updateTotals()
 			}
-			totalLabel.SetText("Загальна сума: 0 грн")
 		}
 	})
 
 	// Кнопка для відкриття статистики
 	statsButton := widget.NewButton("Переглянути статистику", func() {
-		statsWin := CreateStatsWindow(app)
-		statsWin.Show()
-	})
+    CreateStatsWindow(app, win) // Новий код, передаємо win
+})
 
+	// Фінальне компонування вікна
 	win.SetContent(container.NewVBox(
-		form,
-		totalLabel,
+		rowsContainer,
+		layout.NewSpacer(), // Розпірка, щоб кнопки були внизу
+		grandTotalLabel,
 		saveButton,
 		statsButton,
 	))
